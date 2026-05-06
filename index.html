@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QR 코드 생성 · 읽기</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --accent: #1d9bf0;
+      --border: #38444d;
+      --field: #15202b;
+    }
+    [data-theme="light"] {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #0f1419;
+      --muted: #536471;
+      --accent: #0a66c2;
+      --border: #d6dde6;
+      --field: #f9fbfd;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      padding: 1.25rem;
+      transition: background .2s ease, color .2s ease;
+    }
+    .wrap { max-width: 28rem; margin: 0 auto; }
+    .topbar { display: flex; justify-content: space-between; gap: .75rem; align-items: flex-start; margin-bottom: .35rem; }
+    h1 { font-size: 1.35rem; font-weight: 700; margin: 0; }
+    .sub { color: var(--muted); font-size: .85rem; margin: 0 0 1.25rem; line-height: 1.45; }
+    .section-title { font-size: 1rem; font-weight: 700; margin: 1.4rem 0 .5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: .35rem; }
+    textarea, input[type="number"], select, input[type="file"] {
+      width: 100%; padding: .55rem .65rem; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--field); color: var(--text); font: inherit;
+    }
+    input[type="file"] { border-style: dashed; }
+    textarea { min-height: 6rem; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: .75rem; }
+    .btns, .decode-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0; }
+    button, a.link-btn {
+      display: inline-flex; align-items: center; gap: .42rem;
+      padding: .5rem .95rem; border-radius: 9999px; border: none;
+      background: var(--accent); color: #fff; text-decoration: none;
+      font-weight: 600; font: inherit; cursor: pointer;
+    }
+    .theme-btn {
+      background: var(--card); color: var(--text); border: 1px solid var(--border);
+      padding: .45rem .8rem;
+    }
+    #download {
+      display: none; align-items: center; gap: .42rem;
+      padding: .45rem .9rem; border-radius: 9999px;
+      border: 1px solid var(--border); color: var(--text); text-decoration: none;
+    }
+    #download:hover, .theme-btn:hover, button:hover, a.link-btn:hover { filter: brightness(1.06); }
+    #output {
+      display: flex; justify-content: center; align-items: center;
+      min-height: 8rem; margin-top: .5rem; padding: 1rem;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    }
+    #output:empty::before { content: "미리보기"; color: var(--muted); font-size: .9rem; }
+    .decode-box {
+      display: none; margin-top: .75rem; padding: .85rem 1rem;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    }
+    .decode-box.visible { display: block; }
+    .decode-label { font-size: .75rem; color: var(--muted); margin-bottom: .35rem; }
+    .decode-text { word-break: break-all; font-size: .9rem; line-height: 1.5; margin: 0; }
+    #err, #decode-err { color: #f4212e; font-size: .85rem; margin-top: .5rem; min-height: 1.2em; }
+    .icon { width: 1em; height: 1em; }
+    canvas { display: block; max-width: 100%; height: auto; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <h1>QR 코드 생성</h1>
+      <button type="button" id="theme-toggle" class="theme-btn" aria-label="테마 변경">
+        <i class="icon" data-lucide="moon"></i><span id="theme-label">다크</span>
+      </button>
+    </div>
+    <p class="sub">텍스트·URL로 QR을 만들고, QR 이미지 파일을 업로드해 내용을 읽을 수 있습니다.</p>
+
+    <h2 class="section-title">QR 이미지에서 읽기</h2>
+    <label for="file-qr">이미지 파일 (PNG, JPG)</label>
+    <input type="file" id="file-qr" accept="image/*" />
+    <p id="decode-err" role="status"></p>
+    <div id="decode-result" class="decode-box" aria-live="polite">
+      <div class="decode-label">디코딩된 내용</div>
+      <p id="decode-text" class="decode-text"></p>
+      <div class="decode-actions" id="decode-actions"></div>
+    </div>
+
+    <h2 class="section-title">QR 코드 만들기</h2>
+    <label for="text">내용</label>
+    <textarea id="text" placeholder="https://example.com" spellcheck="false">https://example.com</textarea>
+    <div class="row">
+      <div>
+        <label for="size">크기(px)</label>
+        <input type="number" id="size" min="64" max="1024" step="32" value="256" />
+      </div>
+      <div>
+        <label for="level">오류 복원</label>
+        <select id="level">
+          <option value="L">낮음 (많이 담음)</option>
+          <option value="M" selected>보통</option>
+          <option value="Q">Q</option>
+          <option value="H">높음 (튼튼함)</option>
+        </select>
+      </div>
+    </div>
+    <div class="btns">
+      <button type="button" id="btn"><i class="icon" data-lucide="qr-code"></i><span>생성</span></button>
+      <a id="download" href="#" download="qrcode.png"><i class="icon" data-lucide="download"></i><span>PNG 저장</span></a>
+    </div>
+    <div id="output" aria-live="polite"></div>
+    <p id="err" role="status"></p>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    (function () {
+      "use strict";
+      var out = document.getElementById("output");
+      var textEl = document.getElementById("text");
+      var sizeEl = document.getElementById("size");
+      var levelEl = document.getElementById("level");
+      var errEl = document.getElementById("err");
+      var dl = document.getElementById("download");
+      var fileQr = document.getElementById("file-qr");
+      var decodeErr = document.getElementById("decode-err");
+      var decodeBox = document.getElementById("decode-result");
+      var decodeTextEl = document.getElementById("decode-text");
+      var decodeActions = document.getElementById("decode-actions");
+      var decodeCanvas = document.createElement("canvas");
+      var decodeCtx = decodeCanvas.getContext("2d");
+      var themeToggle = document.getElementById("theme-toggle");
+      var themeLabel = document.getElementById("theme-label");
+
+      function refreshIcons() {
+        if (window.lucide && window.lucide.createIcons) {
+          window.lucide.createIcons({ attrs: { class: "icon" } });
+        }
+      }
+
+      function getInitialTheme() {
+        var saved = localStorage.getItem("qr-theme");
+        if (saved === "dark" || saved === "light") return saved;
+        return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      }
+
+      function applyTheme(theme) {
+        document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem("qr-theme", theme);
+        var icon = themeToggle.querySelector("[data-lucide]");
+        if (theme === "light") {
+          themeLabel.textContent = "라이트";
+          icon.setAttribute("data-lucide", "sun");
+        } else {
+          themeLabel.textContent = "다크";
+          icon.setAttribute("data-lucide", "moon");
+        }
+        refreshIcons();
+      }
+
+      function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+      function correctLevel() {
+        var v = levelEl.value;
+        var L = QRCode.CorrectLevel;
+        if (v === "L") return L.L;
+        if (v === "M") return L.M;
+        if (v === "Q") return L.Q;
+        return L.H;
+      }
+
+      function render() {
+        errEl.textContent = "";
+        dl.style.display = "none";
+        var text = textEl.value;
+        if (!text.trim()) {
+          out.innerHTML = "";
+          errEl.textContent = "텍스트나 URL을 입력하세요.";
+          return;
+        }
+        var w = clamp(parseInt(sizeEl.value, 10) || 256, 64, 1024);
+        sizeEl.value = String(w);
+        out.innerHTML = "";
+        try {
+          new QRCode(out, {
+            text: text,
+            width: w,
+            height: w,
+            colorDark: "#111111",
+            colorLight: "#ffffff",
+            correctLevel: correctLevel()
+          });
+          var canvas = out.querySelector("canvas");
+          if (canvas) {
+            dl.href = canvas.toDataURL("image/png");
+            dl.download = "qrcode.png";
+            dl.style.display = "inline-flex";
+          }
+        } catch (e) {
+          out.innerHTML = "";
+          errEl.textContent = e.message || "생성에 실패했습니다.";
+        }
+      }
+
+      function resolveOpenHref(s) {
+        var t = s.trim();
+        if (!t) return null;
+        try {
+          var u = new URL(t);
+          if (u.protocol === "http:" || u.protocol === "https:") return u.href;
+        } catch (_) {}
+        if (/^www\./i.test(t)) return "https://" + t;
+        return null;
+      }
+
+      function showDecodeResult(data) {
+        decodeTextEl.textContent = data;
+        decodeActions.innerHTML = "";
+        var href = resolveOpenHref(data);
+        if (href) {
+          var a = document.createElement("a");
+          a.href = href;
+          a.className = "link-btn";
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.innerHTML = '<i class="icon" data-lucide="external-link"></i><span>링크 열기</span>';
+          decodeActions.appendChild(a);
+        }
+        decodeBox.classList.add("visible");
+        refreshIcons();
+      }
+
+      function decodeQrFromFile(file) {
+        decodeErr.textContent = "";
+        decodeBox.classList.remove("visible");
+        if (!file || !/^image\//.test(file.type)) {
+          decodeErr.textContent = "이미지 파일을 선택하세요.";
+          return;
+        }
+        var blobUrl = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          URL.revokeObjectURL(blobUrl);
+          var w = img.naturalWidth;
+          var h = img.naturalHeight;
+          var maxSide = Math.max(w, h);
+          var scale = 1;
+          if (maxSide < 280) scale = 280 / maxSide;
+          if (maxSide * scale > 1400) scale = 1400 / maxSide;
+          var cw = Math.max(1, Math.round(w * scale));
+          var ch = Math.max(1, Math.round(h * scale));
+          decodeCanvas.width = cw;
+          decodeCanvas.height = ch;
+          decodeCtx.imageSmoothingEnabled = scale !== 1;
+          decodeCtx.drawImage(img, 0, 0, cw, ch);
+          var imageData = decodeCtx.getImageData(0, 0, cw, ch);
+          var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+          if (code && code.data) showDecodeResult(code.data);
+          else decodeErr.textContent = "QR 코드를 찾지 못했습니다. 더 선명한 이미지로 다시 시도하세요.";
+        };
+        img.onerror = function () {
+          URL.revokeObjectURL(blobUrl);
+          decodeErr.textContent = "이미지를 불러올 수 없습니다.";
+        };
+        img.src = blobUrl;
+      }
+
+      themeToggle.addEventListener("click", function () {
+        var now = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+        applyTheme(now);
+      });
+      fileQr.addEventListener("change", function () {
+        var f = fileQr.files && fileQr.files[0];
+        if (f) decodeQrFromFile(f);
+      });
+      document.getElementById("btn").addEventListener("click", render);
+      textEl.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) render();
+      });
+
+      applyTheme(getInitialTheme());
+      refreshIcons();
+      render();
+    })();
+  </script>
+</body>
+</html>
